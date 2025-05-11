@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <title>Карта с кластеризацией</title>
+    <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        html, body, #map {
+            width: 100%; height: 100%; margin: 0; padding: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <script>
+        ymaps.ready(init);
+
+        function init() {
+            const map = new ymaps.Map("map", {
+                center: [54.3, 48.3],
+                zoom: 10
+            });
+
+            const clusterer = new ymaps.Clusterer({
+                preset: 'islands#invertedBlueClusterIcons',
+                clusterDisableClickZoom: true,
+                clusterOpenBalloonOnClick: true,
+                groupByCoordinates: false,
+                clusterBalloonContentLayout: 'cluster#balloonCarousel'
+            });
+
+            // Загрузка CSV файла
+            fetch('output2.csv')
+                .then(response => response.text())
+                .then(csvText => {
+                    Papa.parse(csvText, {
+                        header: false,
+                        skipEmptyLines: true,
+                        complete: function(results) {
+                            console.log("Данные из CSV:", results.data);
+                            
+                            const placemarks = results.data.map(row => {
+                                try {
+                                    // Пропускаем пустые строки
+                                    if (!row || row.length === 0) return null;
+                                    
+                                    // Получаем строку данных (PapaParse может возвращать массив или объект)
+                                    const data = Array.isArray(row) ? row[0] : row;
+                                    
+                                    // Разделяем строку на части
+                                    const parts = String(data).split(',');
+                                    
+                                    // Получаем координаты (убедитесь, что в вашем CSV сначала широта, потом долгота)
+                                    const lat = parseFloat(parts[0].trim());
+                                    const lon = parseFloat(parts[1].trim());
+                                    
+                                    console.log("Обработка строки:", data, "Координаты:", lat, lon);
+
+                                    if (isNaN(lat) || isNaN(lon)) {
+                                        console.warn("Некорректные координаты в строке:", data);
+                                        return null;
+                                    }
+                                    
+                                    // Адрес — всё, что после координат
+                                    const fullAddress = parts.slice(2).join(', ').replace(/"/g, '').trim();
+                                    
+                                    // Создаем метку с улучшенным внешним видом
+                                    return new ymaps.Placemark(
+                                        [lat, lon], 
+                                        {
+                                            balloonContent: fullAddress,
+                                            hintContent: fullAddress
+                                        },
+                                        {
+                                            preset: 'islands#blueCircleDotIcon',
+                                            balloonCloseButton: true,
+                                            hideIconOnBalloonOpen: false
+                                        }
+                                    );
+                                } catch (e) {
+                                    console.error("Ошибка обработки строки:", row, e);
+                                    return null;
+                                }
+                            }).filter(Boolean); // Убираем пустые метки
+
+                            console.log("Создано меток:", placemarks.length);
+                            
+                            if (placemarks.length === 0) {
+                                console.error("Не создано ни одной метки. Проверьте формат CSV файла.");
+                                return;
+                            }
+                            
+                            // Добавляем метки в кластер
+                            clusterer.add(placemarks);
+                            map.geoObjects.add(clusterer);
+                            
+                            // Автоматически подбираем масштаб для показа всех меток
+                            map.setBounds(clusterer.getBounds(), {
+                                checkZoomRange: true,
+                                zoomMargin: 50
+                            });
+                        },
+                        error: function(error) {
+                            console.error('Ошибка при парсинге CSV:', error);
+                        }
+                    });
+                })
+                .catch(error => console.error('Ошибка при загрузке CSV:', error));
+        }
+    </script>
+</body>
+</html>
